@@ -1,0 +1,13 @@
+useDynLib(arulesCWAR)
+
+import("arulesCBA")
+import("tensorflow")
+
+export("CWAR",
+       "mineCARs2"
+       )
+
+#S3method(predict, CBA)
+#S3method(print, CBA)
+#S3method(rules, CBA)
+

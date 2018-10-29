@@ -1,0 +1,15 @@
+Package: arulesCWAR
+Version: 1.1.1-1
+Date: 2018-11-01
+Title: Classification Based on Weighted Association Rules
+Authors@R: c(person("Tyler", "Giallanza", role=c("aut", "cre", "cph"),
+            email = "tylergiallanza@gmail.com"),
+            person("Michael", "Hahsler", role=c("aut", "cph"),
+            email = "mhahsler@lyle.smu.edu"))
+Description: Provides a function to build an association rule-based classifier for data frames accoding to the CWAR algorithm.
+Maintainer: Tyler Giallanza <tylergiallanza@gmail.com>
+Depends: R (>= 3.2.0), Matrix (>= 1.2-0), arules (>= 1.6-0), discretization (>= 1.0-1)
+Imports: methods, testthat
+License: GPL-3
+URL: https://github.com/tylergiallanza/arulesCWAR
+BugReports: https://github.com/tylergiallanza/arulesCWAR
