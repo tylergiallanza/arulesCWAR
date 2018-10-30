@@ -37,34 +37,20 @@
        var_ids = var_ids, var_names = var_names,
        formula = formula)
 }
-find_rules_per_class <- function(rules,method='confidence') {
-  if(method=='confidence') {
-    rule_factor <- factor(unlist(as(rhs(rules),'list')))
-    num_classes <- length(levels(rule_factor))
-    rule_predictions <- as.integer(rule_factor)
-    class_rules <- matrix(nrow=length(rules),ncol=num_classes)
-    class_rules[,] <- 0
-    for(i in 1:num_classes) {
-      rule_indices <- which(rule_predictions==i)
-      class_rules[rule_indices,i] <- quality(rules)$confidence[rule_indices]
-    }
-    class_rules
-  } else {
-    rule_factor <- factor(unlist(as(rhs(rules),'list')))
-    num_classes <- length(levels(rule_factor))
-    rule_predictions <- as.integer(rule_factor)
-    class_rules <- matrix(nrow=length(rules),ncol=num_classes)
-    class_rules[,] <- 0
-    for(i in 1:num_classes) {
-      rule_indices <- which(rule_predictions==i)
-      class_rules[rule_indices,i] <- 1
-    }
-    class_rules
+
+find_rules_per_class <- function(formula,data,rules,method='confidence') {
+  class_names <- .parseformula(formula,data)$class_names
+  uniform <- as(rhs(rules)[,class_names],'matrix')*1
+  if(method=='uniform') {
+    return(uniform)
+  }else if(method=='confidence') {
+    return(uniform*quality(rules)$confidence)
   }
 }
 
 find_rules_per_transaction <- function(rules,transactions) {
-  t(is.subset(lhs(rules),transactions))
+  sa <- is.subset(lhs(rules),transactions)
+  t(as.matrix(sa)) #FIX THIS SO IT STAYS SPARSE
 }
 
 generate_labels <- function(formula,data) {
@@ -104,11 +90,11 @@ CWAR <- function(formula, data, params, verbosity=0) {
   apriori_params = list(supp=params$support, conf=params$conf)
   rules <- mineCARs2(formula, data, balanceSupport=T, parameter=apriori_params,control=list(verbose=verbosity>=2))
   #step 2: find rules per class
-  class_rules <- find_rules_per_class(rules,method=params$weight_initialization)
+  class_rules <- find_rules_per_class(formula,data,rules,method=params$weight_initialization)
   #step 3: find rules per transaction
   trans_rules <- find_rules_per_transaction(rules,data)
   #step 4: extract y data
-  trans_labels <- generate_labels(formula,data) #CHANGE THIS METHOD TO TAKE FORMULA
+  trans_labels <- generate_labels(formula,data)
   #step 5: run CWAR algorithm
   best_epoch <- 1
   tf$reset_default_graph() 
@@ -134,6 +120,7 @@ CWAR <- function(formula, data, params, verbosity=0) {
     } else if(params$loss=='cross') {
       loss <- tf$losses$softmax_cross_entropy(y_,yhat)
     }
+    #TODO: add checks for params
     
     if(params$regularization=='l1') {
       regularizer <- tf$scalar_mul(params$regularization_weights$l1,tf$reduce_sum(W))
@@ -186,13 +173,20 @@ CWAR <- function(formula, data, params, verbosity=0) {
       epoch_accs[[i]] <- epoch_accs[[i]]/length(batches)
       epoch_rules[[i]] <- sess$run(tf$count_nonzero(tf$nn$relu(W)),feed_dict=dict(C_=class_rules))
     }
+    model <- list()
     model$num_rules <- epoch_rules[[params$epoch]]
     model$weights <- sess$run(W,feed_dict=dict(C_=class_rules)) #combine this with n_rules above
-    model$classifier <- CBA_ruleset(formula, rules[model$weights>0], model$weights[model$weights>0], description = 'CWAR rule set')
+    model$classifier <- CBA_ruleset(formula, rules[model$weights>0], method = 'majority',
+                                    weights = model$weights[model$weights>0], description = 'CWAR rule set')
     model$history <- list(loss=epoch_loss,accuracy=epoch_accs,rules=epoch_rules)
+    class(model) <- "CWAR"
   })
   #step 6: return CBA object
   return(model) #FIX
+}
+
+predict.CWAR <- function(object, newdata, ...) {
+  predict(object$classifier, newdata, ...)
 }
 
 #data(Adult)

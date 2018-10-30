@@ -7,7 +7,7 @@ export("CWAR",
        "mineCARs2"
        )
 
-#S3method(predict, CBA)
+S3method(predict, CWAR)
 #S3method(print, CBA)
 #S3method(rules, CBA)
 
