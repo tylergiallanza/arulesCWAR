@@ -88,7 +88,7 @@ get_batch <- function(sparse_matrix, batch_indices=NULL) {
 CWAR <- function(formula, data, params, verbosity=0) {
   #step 1: mine rules
   apriori_params = list(supp=params$support, conf=params$conf)
-  rules <- mineCARs2(formula, data, balanceSupport=T, parameter=apriori_params,control=list(verbose=verbosity>=2))
+  rules <- mineCARs(formula, data, balanceSupport=T, parameter=apriori_params,control=list(verbose=verbosity>=2))
   #step 2: find rules per class
   class_rules <- find_rules_per_class(formula,data,rules,method=params$weight_initialization)
   #step 3: find rules per transaction
@@ -173,23 +173,24 @@ CWAR <- function(formula, data, params, verbosity=0) {
       epoch_accs[[i]] <- epoch_accs[[i]]/length(batches)
       epoch_rules[[i]] <- sess$run(tf$count_nonzero(tf$nn$relu(W)),feed_dict=dict(C_=class_rules))
     }
-    model <- list()
-    model$num_rules <- epoch_rules[[params$epoch]]
-    model$weights <- sess$run(W,feed_dict=dict(C_=class_rules)) #combine this with n_rules above
-    model$classifier <- CBA_ruleset(formula, rules[model$weights>0], method = 'majority',
-                                    weights = model$weights[model$weights>0], description = 'CWAR rule set')
+    
+    
+    num_rules <- epoch_rules[[params$epoch]]
+    weights <- sess$run(W,feed_dict=dict(C_=class_rules)) #combine this with n_rules above
+    
+    model <- CBA_ruleset(formula, rules[weights>0], method = 'majority',
+                                    weights = weights[weights>0], description = 'CWAR rule set')
     model$history <- list(loss=epoch_loss,accuracy=epoch_accs,rules=epoch_rules)
-    class(model) <- "CWAR"
   })
   #step 6: return CBA object
-  return(model) #FIX
+  model 
 }
 
-predict.CWAR <- function(object, newdata, ...) {
-  predict(object$classifier, newdata, ...)
-}
+#predict.CWAR <- function(object, newdata, ...) {
+#  predict(object$classifier, newdata, ...)
+#}
 
-#data(Adult)
-#cwar_params <- list(support=0.3,confidence=0.5,weight_initialization='confidence',
-                    #loss='cross',regularization='l1',optimizer='sgd',epoch=2,batch_size=16,learning_rate=0.001)
-#CWAR('income~.',Adult,cwar_params,0)
+# data(Adult)
+# cwar_params <- list(support=0.3,confidence=0.5,weight_initialization='confidence',
+#                     loss='cross',regularization='l1',optimizer='sgd',epoch=2,batch_size=16,learning_rate=0.001,regularization_weights=list(l1=0.01))
+# res <- CWAR('income~.',Adult,cwar_params,0)
