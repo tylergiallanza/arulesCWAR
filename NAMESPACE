@@ -3,11 +3,9 @@ useDynLib(arulesCWAR)
 import("arulesCBA")
 import("tensorflow")
 
-export("CWAR",
-       "mineCARs2"
-       )
+export("CWAR")
 
-S3method(predict, CWAR)
+#S3method(predict, CWAR)
 #S3method(print, CBA)
 #S3method(rules, CBA)
 
