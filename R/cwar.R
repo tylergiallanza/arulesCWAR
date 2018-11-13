@@ -1,3 +1,4 @@
+#Fill in any missing parameters with their default values
 fill_params <- function(params) {
     if(is.null(params)) params <- list()
     if(!'support' %in% names(params)) params$support <- 0.4
@@ -13,6 +14,7 @@ fill_params <- function(params) {
 }
 
 
+#Train a CWAR classifier and return it represented as a CBA object with an added history field
 CWAR <- function(formula, data, params = NULL, verbosity=0) {
   params <- fill_params(params)
   #step 1: mine rules
@@ -42,14 +44,15 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     }
     W <- tf$multiply(W,C_)
     W <- tf$nn$relu(W)
-    yhat <- tf$matmul(T_,W,a_is_sparse = F, b_is_sparse = F,name='yhat-tensor') #TODO: check on sparsity
+    yhat <- tf$matmul(T_,W,a_is_sparse = F, b_is_sparse = F,name='yhat-tensor')
     
     if(params$loss=='mse') {
       loss <- tf$losses$mean_squared_error(y_,yhat)
     } else if(params$loss=='cross') {
       loss <- tf$losses$softmax_cross_entropy(y_,yhat)
+    } else {
+      stop('Error - please specify a valid loss function, params$loss')
     }
-    #TODO: add checks for params
     
     if(params$regularization=='l1') {
       if(!'regularization_weights' %in% params || !'l1' %in% params$regularization_weights) {
@@ -115,7 +118,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     
     
     num_rules <- epoch_rules[[params$epoch]]
-    weights <- sess$run(W,feed_dict=dict(C_=class_rules)) #combine this with n_rules above
+    weights <- sess$run(W,feed_dict=dict(C_=class_rules))
     
     model <- CBA_ruleset(formula, rules[weights>0], method = 'majority',
                                     weights = weights[weights>0], description = 'CWAR rule set')
