@@ -1,13 +1,13 @@
 #Fill in any missing parameters with their default values
 fill_params <- function(params) {
     if(is.null(params)) params <- list()
-    if(!'support' %in% names(params)) params$support <- 0.4
+    if(!'support' %in% names(params)) params$support <- 0.3
     if(!'confidence' %in% names(params)) params$confidence <- 0.5
     if(!'weight_initialization' %in% names(params)) params$weight_initialization <- 'confidence'
     if(!'loss' %in% names(params)) params$loss <- "cross"
     if(!'optimizer' %in% names(params)) params$optimizer <- "sgd"
     if(!'regularization' %in% names(params)) params$regularization <- "none"
-    if(!'epoch' %in% names(params)) params$epoch <- 10
+    if(!'epoch' %in% names(params)) params$epoch <- 5
     if(!'batch_size' %in% names(params)) params$batch_size <- 16
     if(!'learning_rate' %in% names(params)) params$learning_rate <- 0.001
     return(params)
@@ -33,18 +33,18 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     num_rules <- dim(class_rules)[1]
     num_classes <- dim(class_rules)[2]
     
-    C_ <- tf$placeholder(tf$float32, shape(num_rules,num_classes),name='C-tensor')
-    y_ <- tf$placeholder(tf$float32, shape(NULL, num_classes),name='y-tensor')
-    T_ <- tf$placeholder(tf$float32, shape(NULL,num_rules),name='T-tensor')
-    W <- tf$Variable(tf$ones(shape(num_rules,num_classes)),name='W-tensor')
+    y_ <- tf$placeholder(tf$float64, shape(NULL, num_classes),name='y-tensor')
+    T_ <- tf$placeholder(tf$float64, shape(NULL,num_rules),name='T-tensor')
+    W <- tf$Variable(class_rules,name='W-tensor')
     if('patience' %in% names(params)) {
       saver <<- tf$train$Saver(max_to_keep=params$patience+2L)
     } else {
       saver <<- tf$train$Saver()
     }
-    W <- tf$multiply(W,C_)
+    
     W <- tf$nn$relu(W)
-    yhat <- tf$matmul(T_,W,a_is_sparse = F, b_is_sparse = F,name='yhat-tensor')
+    first_out <- tf$matmul(T_,W,a_is_sparse = F, b_is_sparse = F,name='yhat-tensor')
+    yhat <- tf$nn$softmax(first_out,name='softmax-tensor')
     
     if(params$loss=='mse') {
       loss <- tf$losses$mean_squared_error(y_,yhat)
@@ -55,20 +55,20 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     }
     
     if(params$regularization=='l1') {
-      if(!'regularization_weights' %in% params || !'l1' %in% params$regularization_weights) {
+      if(!'regularization_weights' %in% names(params) || !'l1' %in% names(params$regularization_weights)) {
         stop('Error - please specify params$regularization_weights$l1')
       }
       regularizer <- tf$scalar_mul(params$regularization_weights$l1,tf$reduce_sum(W))
       loss <- tf$add(loss,regularizer)
     } else if(params$regularization=='l2') {
-      if(!'regularization_weights' %in% params || !'l2' %in% params$regularization_weights) {
+      if(!'regularization_weights' %in% names(params) || !'l2' %in% names(params$regularization_weights)) {
         stop('Error - please specify params$regularization_weights$l2')
       }
       regularizer <- tf$scalar_mul(params$regularization_weights$l2,tf$reduce_sum(tf$square(W)))
       loss <- tf$add(loss,regularizer)
     } else if(params$regularization=='elastic') {
-      if(!'regularization_weights' %in% params || !'l2' %in% params$regularization_weights ||
-         !'l1' %in% params$regularization_weights) {
+      if(!'regularization_weights' %in% names(params) || !'l2' %in% names(params$regularization_weights) ||
+         !'l1' %in% names(params$regularization_weights)) {
         stop('Error - please specify params$regularization_weights$l2 and params$regularization_weights$l1')
       }
       l1 <- tf$scalar_mul(params$regularization_weights$l1,tf$reduce_sum(W))
@@ -91,7 +91,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     train_step <- optimizer$minimize(loss)
     
     correct_prediction <- tf$equal(tf$argmax(yhat,1L),tf$argmax(y_,1L))
-    accuracy <- tf$reduce_mean(tf$cast(correct_prediction,tf$float32),name='accuracy-tensor')
+    accuracy <- tf$reduce_mean(tf$cast(correct_prediction,tf$float64),name='accuracy-tensor')
     
     sess$run(tf$global_variables_initializer())
     epoch_loss <- vector('list',params$epoch)
@@ -105,7 +105,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
       for(batch in batches) {
         current_batch <- get_batch(trans_rules,batch)
         results <- sess$run(c(train_step,loss,accuracy),
-               feed_dict = dict(C_=class_rules,T_=current_batch,y_=get_batch(trans_labels,batch))) #TODO: no feed dict
+               feed_dict = dict(T_=current_batch,y_=get_batch(trans_labels,batch))) #TODO: no feed dict
         epoch_loss[[i]] <- epoch_loss[[i]] + results[[2]]
         epoch_accs[[i]] <- epoch_accs[[i]] + results[[3]]
         
@@ -113,15 +113,16 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
       }
       epoch_loss[[i]] <- epoch_loss[[i]]/length(batches)
       epoch_accs[[i]] <- epoch_accs[[i]]/length(batches)
-      epoch_rules[[i]] <- sess$run(tf$count_nonzero(tf$nn$relu(W)),feed_dict=dict(C_=class_rules))
+      epoch_rules[[i]] <- sess$run(tf$count_nonzero(tf$nn$relu(W)))
     }
     
     
     num_rules <- epoch_rules[[params$epoch]]
-    weights <- sess$run(W,feed_dict=dict(C_=class_rules))
+    weights <- sess$run(W)
+    rule_weights <- rowSums(weights)
     
-    model <- CBA_ruleset(formula, rules[weights>0], method = 'majority',
-                                    weights = weights[weights>0], description = 'CWAR rule set')
+    model <- CBA_ruleset(formula, rules[rule_weights>0], method = 'majority',
+                                    weights = rule_weights[rule_weights>0], description = 'CWAR rule set')
     model$history <- list(loss=epoch_loss,accuracy=epoch_accs,rules=epoch_rules)
   })
   #step 6: return CBA object
