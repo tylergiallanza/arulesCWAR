@@ -105,7 +105,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
       for(batch in batches) {
         current_batch <- get_batch(trans_rules,batch)
         results <- sess$run(c(train_step,loss,accuracy),
-               feed_dict = dict(T_=current_batch,y_=get_batch(trans_labels,batch))) #TODO: no feed dict
+               feed_dict = dict(T_=current_batch,y_=get_batch(trans_labels,batch)))
         epoch_loss[[i]] <- epoch_loss[[i]] + results[[2]]
         epoch_accs[[i]] <- epoch_accs[[i]] + results[[3]]
         

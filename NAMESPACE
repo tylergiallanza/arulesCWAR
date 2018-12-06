@@ -4,8 +4,3 @@ import("arulesCBA")
 import("tensorflow")
 
 export("CWAR")
-
-#S3method(predict, CWAR)
-#S3method(print, CBA)
-#S3method(rules, CBA)
-

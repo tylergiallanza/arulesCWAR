@@ -1,0 +1,9 @@
+* using log directory ‘/home/tylergiallanza/Dropbox/School/CSE5393/sgd/arulesCWAR/..Rcheck’
+* using R version 3.4.2 (2017-09-28)
+* using platform: x86_64-pc-linux-gnu (64-bit)
+* using session charset: UTF-8
+* checking for file ‘./DESCRIPTION’ ... ERROR
+Required field missing or empty:
+  ‘Author’
+* DONE
+Status: 1 ERROR

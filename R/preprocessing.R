@@ -5,12 +5,14 @@ find_rules_per_class <- function(formula,data,rules,method='confidence') {
     return(uniform)
   }else if(method=='confidence') {
     return(uniform*quality(rules)$confidence)
+  } else if(method=='random') {
+    return(uniform*runif(dim(uniform)[1]))
   }
 }
 
 find_rules_per_transaction <- function(rules,transactions) {
   sa <- is.subset(lhs(rules),transactions)
-  t(as.matrix(sa)) #FIX THIS SO IT STAYS SPARSE
+  t(as.matrix(sa))
 }
 
 generate_labels <- function(formula,data) {
