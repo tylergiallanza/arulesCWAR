@@ -1,8 +1,14 @@
-get_batches <- function(total_size,batch_size) {
+get_batches <- function(total_size,batch_size, shuffle = T) {
   total_indices <- 1:total_size
-  shuffled_indices <- sample(total_indices)
-  split_indices <- split(shuffled_indices,rep(1:(length(shuffled_indices)/batch_size),length(shuffled_indices)/batch_size))
-  return(split_indices)
+  if(shuffle) {
+    shuffled_indices <- sample(total_indices)
+    split_indices <- split(shuffled_indices,rep(1:(length(shuffled_indices)/batch_size),length(shuffled_indices)/batch_size))
+    return(split_indices)
+  } else {
+    #split_indices <- split(total_indices,rep(1:(length(total_indices)/batch_size),length(total_indices)/batch_size))
+    split_indices <- split(total_indices, ceiling(seq_along(total_indices)/batch_size))
+    return(split_indices)
+  }
   
 }
 

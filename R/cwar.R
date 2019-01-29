@@ -21,7 +21,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
   apriori_params = list(supp=params$support, conf=params$confidence)
   rules <- mineCARs(formula, data, balanceSupport=T, parameter=apriori_params,control=list(verbose=verbosity>=2))
   #step 2: find rules per class
-  class_rules <- find_rules_per_class(formula,data,rules,method=params$weight_initialization)
+  #class_rules <- find_rules_per_class(formula,data,rules,method=params$weight_initialization)
   #step 3: find rules per transaction
   trans_rules <- find_rules_per_transaction(rules,data)
   #step 4: extract y data
@@ -29,13 +29,26 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
   #step 5: run CWAR algorithm
   best_epoch <- 1
   tf$reset_default_graph() 
-  with(tf$Session() %as% sess,{
-    num_rules <- dim(class_rules)[1]
-    num_classes <- dim(class_rules)[2]
+  #with(tf$Session() %as% sess,{
+  sess <- tf$Session(config = tf$ConfigProto(intra_op_parallelism_threads=8L, inter_op_parallelism_threads=8L,
+                                             log_device_placement=F))
+    #num_rules <- dim(class_rules)[1]
+    #num_classes <- dim(class_rules)[2]
+    num_rules <- length(rules)
+    num_classes <- length(.parseformula(formula, data)$class_names)
+    print(c(num_rules, num_classes))
     
     y_ <- tf$placeholder(tf$float64, shape(NULL, num_classes),name='y-tensor')
     T_ <- tf$placeholder(tf$float64, shape(NULL,num_rules),name='T-tensor')
-    W <- tf$Variable(class_rules,name='W-tensor')
+    #W <- tf$Variable(class_rules,name='W-tensor')
+    W <- tf$Variable(initialize_hidden_weights(num_rules,num_classes),name='W-tensor')
+    b <- tf$Variable(tf$zeros(shape(num_classes), dtype = tf$float64))
+    if('deep' %in% names(params)) {
+      W <- tf$Variable(initialize_hidden_weights(num_rules,params$deep),name='W-tensor')
+      b <- tf$Variable(tf$zeros(shape(params$deep), dtype = tf$float64))
+      W2 <- tf$Variable(initialize_hidden_weights(params$deep,num_classes), name='W-tensor-2')
+      b2 <- tf$Variable(tf$zeros(shape(num_classes), dtype = tf$float64))
+    }
     if('patience' %in% names(params)) {
       saver <<- tf$train$Saver(max_to_keep=params$patience+2L)
     } else {
@@ -43,8 +56,14 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     }
     
     W <- tf$nn$relu(W)
-    first_out <- tf$matmul(T_,W,a_is_sparse = F, b_is_sparse = F,name='yhat-tensor')
-    yhat <- tf$nn$softmax(first_out,name='softmax-tensor')
+    first_out <- tf$add(tf$matmul(T_,W,a_is_sparse = T, b_is_sparse = T,name='yhat-tensor'),b)
+    if('deep' %in% names(params)) {
+      first_out <- tf$nn$relu(first_out)
+      output <- tf$add(tf$matmul(first_out, W2, a_is_sparse =T, b_is_sparse = T,name='layer-2-tensor'),b2)
+    } else {
+      output <- first_out
+    }
+    yhat <- tf$nn$softmax(output,name='softmax-tensor')
     
     if(params$loss=='mse') {
       loss <- tf$losses$mean_squared_error(y_,yhat)
@@ -90,7 +109,8 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
 
     train_step <- optimizer$minimize(loss)
     
-    correct_prediction <- tf$equal(tf$argmax(yhat,1L),tf$argmax(y_,1L))
+    prediction <- tf$argmax(yhat,1L)
+    correct_prediction <- tf$equal(prediction,tf$argmax(y_,1L))
     accuracy <- tf$reduce_mean(tf$cast(correct_prediction,tf$float64),name='accuracy-tensor')
     
     sess$run(tf$global_variables_initializer())
@@ -102,7 +122,12 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
       batches <- get_batches(dim(trans_rules)[1],params$batch_size)
       epoch_loss[[i]] <- 0
       epoch_accs[[i]] <- 0
+      batch_index <- 0
       for(batch in batches) {
+        if(verbosity>0) {
+          cat('\014')
+          cat(paste0('epoch ', i, '/', params$epoch, ' ', round(batch_index/length(batches)*100),'% completed'))
+        }
         current_batch <- get_batch(trans_rules,batch)
         results <- sess$run(c(train_step,loss,accuracy),
                feed_dict = dict(T_=current_batch,y_=get_batch(trans_labels,batch)))
@@ -110,6 +135,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
         epoch_accs[[i]] <- epoch_accs[[i]] + results[[3]]
         
         rm(current_batch)
+        batch_index <- batch_index + 1
       }
       epoch_loss[[i]] <- epoch_loss[[i]]/length(batches)
       epoch_accs[[i]] <- epoch_accs[[i]]/length(batches)
@@ -120,11 +146,47 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
     num_rules <- epoch_rules[[params$epoch]]
     weights <- sess$run(W)
     rule_weights <- rowSums(weights)
+    model <- list()
+    model$params <- params
+    model$sess <- sess
+    model$formula <- formula
+    model$batch_size <- params$batch_size
+    model$T_ <- T_
+    model$prediction <- prediction
     
-    model <- CBA_ruleset(formula, rules[rule_weights>0], method = 'majority',
-                                    weights = rule_weights[rule_weights>0], description = 'CWAR rule set')
     model$history <- list(loss=epoch_loss,accuracy=epoch_accs,rules=epoch_rules)
-  })
+    model$original_rules <- rules
+    model$first_weights <- weights
+    if('deep' %in% names(params)) {
+      model$second_weights <- sess$run(W2)
+    }
+    
+    model$class_names <- unlist(lapply(strsplit(.parseformula('cls~.',vote_trans)$class_names,'='), function(x) x[2]))
+  #})
   #step 6: return CBA object
+  class(model) <- "CWAR"
   model 
+}
+
+#Train a CWAR classifier and return it represented as a CBA object with an added history field
+predict.CWAR <- function(object, newdata, ...) {
+  #step 1: get rules
+  rules <- object$original_rules
+  #step 2: find rules per transaction
+  trans_rules <- find_rules_per_transaction(rules,newdata)
+  #step 3: run CWAR algorithm
+  tf$reset_default_graph() 
+  #with(tf$Session() %as% sess,{
+    batches <- get_batches(dim(trans_rules)[1],object$batch_size, shuffle = F)
+    total_results <- c()
+    for(batch in batches) {
+      dct <- dict()
+      current_batch <- get_batch(trans_rules,batch)
+      dct[[object$T_]] <- current_batch
+      results <- object$sess$run(c(object$prediction),
+             feed_dict = dct)
+      total_results <- c(total_results,unlist(results))
+    }
+    factor(object$class_names[total_results+1],levels=object$class_names)
+  #})
 }
