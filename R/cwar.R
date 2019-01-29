@@ -161,7 +161,7 @@ CWAR <- function(formula, data, params = NULL, verbosity=0) {
       model$second_weights <- sess$run(W2)
     }
     
-    model$class_names <- unlist(lapply(strsplit(.parseformula('cls~.',vote_trans)$class_names,'='), function(x) x[2]))
+    model$class_names <- unlist(lapply(strsplit(.parseformula('cls~.',data)$class_names,'='), function(x) x[2]))
   #})
   #step 6: return CBA object
   class(model) <- "CWAR"

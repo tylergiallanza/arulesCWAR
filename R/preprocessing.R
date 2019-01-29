@@ -16,7 +16,6 @@ initialize_hidden_weights <- function(num_previous,num_hidden) {
 
 find_rules_per_transaction <- function(rules,transactions) {
   sa <- is.subset(lhs(rules),transactions)
-  print(class(sa))
   #t(as.matrix(sa))
   Matrix::t(sa)
 }
