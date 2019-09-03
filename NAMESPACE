@@ -2,5 +2,7 @@ useDynLib(arulesCWAR)
 
 import("arulesCBA")
 import("tensorflow")
+import("reticulate")
 
 export("CWAR")
+export("predict.CWAR")
