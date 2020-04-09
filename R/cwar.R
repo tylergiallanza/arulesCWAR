@@ -46,7 +46,7 @@ CWAR <- function(formula, data, mining_params, training_params, opt_params) {
   #step 3: build architecture
   arch <- build_arch(length(rules),y_data$shape[1],training_params$deep, training_params$loss, training_params$optimizer, opt_params, training_params$l1, training_params$l2)
   #step 4: run training
-  weights <- train(arch, training_params$epochs, training_params$batch_size, x_data, y_data)
+  weights <- train(arch, training_params$epochs, training_params$batch_size, x_data, y_data, deep=training_params$deep)
   #step 5: save model
   model <- list()
   model$original_rules <- rules

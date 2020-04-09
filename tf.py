@@ -21,6 +21,7 @@ def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2
     tf.reset_default_graph()
     y = tf.placeholder(tf.float32, (None, num_classes))
     x = tf.sparse_placeholder(tf.float32, (None, num_rules))
+    w2, b2 = 0, 0
     if deep:
         w1 = tf.get_variable('w1',initializer=tf.truncated_normal_initializer(),shape=(num_rules,deep))
         b1 = tf.Variable(tf.zeros((deep,)))
@@ -92,7 +93,7 @@ def eval_tensors(tensors, name, data):
             return sess.run(tensors[name],feed_dict={tensors['x']:get_x_batch(data,0,data.shape[0])})
 
 
-def train(tensors, epochs, batch_size, x_data, y_data, prod=False, x_test = None, y_test = None, x_val = None, y_val = None):
+def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False, x_test = None, y_test = None, x_val = None, y_val = None):
     indices = list(range(len(y_data)))
     with tf.Session() as sess:
         last_acc,last_num_rules=0,0
@@ -127,9 +128,10 @@ def train(tensors, epochs, batch_size, x_data, y_data, prod=False, x_test = None
         else:
             weights = {}
             weights['w1'] = sess.run(tensors['w1'])
-            weights['w2'] = sess.run(tensors['w2'])
             weights['b1'] = sess.run(tensors['b1'])
-            weights['b2'] = sess.run(tensors['b2'])
+            if deep:
+                weights['w2'] = sess.run(tensors['w2'])
+                weights['b2'] = sess.run(tensors['b2'])
             return weights
 
 
