@@ -1,8 +1,14 @@
-useDynLib(arulesCWAR)
-
 import("arulesCBA")
+import("arules")
+import("Matrix")
+
 import("tensorflow")
 import("reticulate")
 
+importFrom("methods", "as", "is")
+importFrom("stats", "runif")
+
 export("CWAR")
-export("predict.CWAR")
+#export("predict.CWAR")
+S3method(predict, "CWAR")
+
