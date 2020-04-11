@@ -1,16 +1,3 @@
-fill_training_params <- function(params) {
-  if(is.null(params)) params <- list()
-  if(!'deep' %in% names(params)) params$deep <- 5L
-  if(!'loss' %in% names(params)) params$loss <- "cross"
-  if(!'optimizer' %in% names(params)) params$optimizer <- "sgd"
-  if(!'l1' %in% names(params)) params$l1 <- 0
-  if(!'l2' %in% names(params)) params$l2 <- 0
-  if(!'epochs' %in% names(params)) params$epochs <- 5L
-  if(!'batch_size' %in% names(params)) params$batch_size <- 16L
-  if(!'learning_rate' %in% names(params)) params$learning_rate <- 0.001
-  return(params)
-}
-
 ### find X
 get_x_data <- function(rules, transactions) t(is.subset(lhs(rules), transactions, sparse = TRUE))
 
@@ -23,10 +10,27 @@ get_y_data <- function(formula, transactions) {
 }
 
 # TODO: make interface look like CBA
-CWAR <- function(formula, data, support = 0.1, confidence = 0.5, disc.method = "mdlp", balancedSupport = TRUE, 
-  training_params, opt_params, verbose = FALSE) {
+CWAR <- function(formula, data, support = 0.1, confidence = 0.5, 
+  disc.method = "mdlp", balanceSupport = TRUE, 
+  training_parameter = NULL, mining_parameter = NULL, mining_control = NULL, 
+  verbose = FALSE) {
   
   source_python(system.file("python", "CWAR_tf.py", package = "arulesCWAR"))
+  
+  training_params <- .get_parameters(training_parameter, list(
+    loss = "cross",
+    l1 = 0,
+    l2 = 0,
+    optimizer = "sgd",
+    opt_params = 0.1, ### for sgd
+    batch_size = 16,
+    epochs = 5,
+    learning_rate = 0.001,
+    groups = 5
+  ))
+  if(verbose) cat("CWAR\n")
+  if(verbose) cat("Training parameters:\n")
+  print(sapply(training_params, as.character))
   
   formula <- as.formula(formula)
   
@@ -40,37 +44,61 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5, disc.method = "
   # convert to transactions for rule mining
   trans <- as(data, "transactions")
   
-  training_params <- fill_training_params(training_params)
+  parsed_formula <- .parseformula(formula, trans)
+  class <- sapply(strsplit(parsed_formula$class_name, '='), '[', 2)
+  
   
   #step 1: mine rules
-  rules <- mineCARs(formula, trans, balanceSupport = balancedSupport, support = support, confidence = confidence,
-    control = list(verbose = verbose))
+  if(verbose) cat("1. Mining CARs")
+  t1 <- proc.time()
+  if(is.null(mining_control)) mining_control <- list(verbose = FALSE)
   
+  rules <- mineCARs(formula, trans, balanceSupport = balanceSupport, 
+    support = support, confidence = confidence,
+    parameter = mining_parameter,
+    control = mining_control)
+  t2 <- proc.time()
+ 
+  if(verbose) cat(": ", length(rules), " [", t2[3]-t1[3],"s]","\n", sep ="")
+  if(verbose) cat("  Rules per class:\n")
+  if(verbose) print(itemFrequency(rhs(rules)[,parsed_formula$class_ids], type = "absolute"))
+   
   #step 2: get training data
+  if(verbose) cat("2. Caculating rule coverage. ")
   x_data <- get_x_data(rules, trans)
   x_data <- r_to_py_scipy_sparse(x_data@i, x_data@p)
   y_data <- r_to_py(get_y_data(formula, trans))
-  
+  t3 <- proc.time()
+  if(verbose) cat("[", t3[3]-t2[3], "s]", "\n", sep ="")
+   
   #step 3: build architecture
+  if(verbose) cat("3. Building tensorflow architecture. ")
   arch <- build_arch(length(rules), y_data$shape[1], 
-    training_params$deep, training_params$loss, training_params$optimizer, 
-    opt_params, 
+    as.integer(training_params$groups), training_params$loss, training_params$optimizer, 
+    training_params$opt_params, 
     training_params$l1, training_params$l2)
+  t4 <- proc.time()
+  if(verbose) cat("[", t4[3]-t3[3], "s]", "\n", sep ="")
   
   #step 4: run training
-  weights <- train(arch, training_params$epochs, training_params$batch_size, 
+  if(verbose) cat("4. Running optimization. ")
+  weights <- train(arch, as.integer(training_params$epochs), as.integer(training_params$batch_size), 
     x_data, y_data, 
-    deep = training_params$deep)
-  
+    deep = training_params$groups)
+  t5 <- proc.time()
+  if(verbose) cat("[", t5[3]-t4[3], "s]", "\n", sep ="")
+  if(verbose && training_params$groups > 0) cat("  Used groups: ", sum(colSums(weights$w1)>0),
+    "/",  ncol(weights$w1), "\n", sep = "")
+   
   #step 5: construct model
-  parsed_formula <- .parseformula(formula, trans)
-  class <- sapply(strsplit(parsed_formula$class_name, '='), '[', 2)
- 
   softmax <- exp(weights$w1)/rowSums(exp(weights$w1))
   quality(rules)$weight <- apply(softmax, MARGIN = 1, max)
+  
+  rules_used = sort(rules[rowSums(weights$w1) != 0], by = "weight")
+  if(verbose) cat("  Used CARs: ", length(rules_used), "\n", sep = "")
    
   structure(list(
-    rules = rules[rowSums(weights$w1) != 0],
+    rules = rules_used,
     class = class,
     discretization = disc_info,
     formula = formula,
@@ -80,8 +108,7 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5, disc.method = "
     parameters = list(
       support = support,
       confidence = confidence,
-      training_params = training_params,
-      opt_params = opt_params
+      training_params = training_params
     ),
     description = paste0("CWAR algorithm with support=", support,
       " and confidence=", confidence)

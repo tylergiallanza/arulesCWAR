@@ -97,6 +97,7 @@ def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False,
             num_batches = (len(indices) - len(indices) % batch_size) / batch_size
             for start_index in range(0,len(indices) - len(indices) % batch_size, batch_size):
                 #x_data is not batch subsetting correctly - try using tf slice
+                # MFH: was the problem the () in the range?
                 batch_x, batch_y = get_x_batch(x_data, start_index, batch_size), y_data[start_index:(start_index+batch_size)]
                 feed_dict = {tensors['x']:batch_x, tensors['y']:batch_y}
                 _, loss,acc,num_rules = sess.run([tensors['train_step'], tensors['loss'], 

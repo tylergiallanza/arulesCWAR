@@ -6,7 +6,7 @@ import("tensorflow")
 import("reticulate")
 
 importFrom("methods", "as", "is")
-importFrom("stats", "runif")
+importFrom("stats", "runif", "as.formula")
 
 export("CWAR")
 #export("predict.CWAR")
