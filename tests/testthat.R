@@ -1,4 +1,4 @@
 library("testthat")
-library("arulesCBA")
+library("arulesCWAR")
 
-test_check("arulesCBA")
+test_check("arulesCWAR")
