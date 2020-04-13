@@ -8,7 +8,8 @@
 \usage{
 CWAR(formula, data, support = 0.1, confidence = 0.5, 
   disc.method = "mdlp", balanceSupport = TRUE, 
-  training_parameter = NULL, mining_parameter = NULL, mining_control = NULL, verbose = FALSE)
+  training_parameter = NULL, mining_parameter = NULL, mining_control = NULL, 
+  verbose = FALSE)
 }
 
 \arguments{
@@ -19,7 +20,7 @@ CWAR(formula, data, support = 0.1, confidence = 0.5,
   \item{confidence}{Confidence threshold for mining CARs.}
   \item{disc.method}{Discretization method used to discretize continuous variables if data is a data.frame.}
   \item{balanceSupport}{balanceSupport parameter passed to the \code{\link[arulesCBA]{mineCARs}} function.}
-  \item{training_params}{List of parameters for the CWAR algorithm.
+  \item{training_parameter}{List of parameters for the CWAR algorithm.
   \describe{
     \item{weight_initialization}{Weight initialization. Options are uniform, random, and confidence.}
     \item{loss}{Loss function. Options are cross for categorical-crossentropy loss and mse for mean squared error.}
@@ -30,6 +31,8 @@ CWAR(formula, data, support = 0.1, confidence = 0.5,
     \item{epoch}{The number of training epochs.}
     \item{learning_rate}{learning rate.}
 }}
+  \item{mining_parameter}{Parameters for \code{\link[arulesCBA]{mineCARs}}.}
+  \item{mining_control}{Control parameters for \code{\link[arulesCBA]{mineCARs}}.}
   \item{verbose}{Show progress information.}
 }
 \details{
@@ -67,8 +70,10 @@ table(pr, iris$Species)
 data(Mushroom, package = "arules")
 Mushroom
   
-classifier <- CWAR(Class ~ ., Mushroom, support = 0.1, confidence = 0.5, mining_parameter = list(maxlen = 3),
-  training_parameter = list(l1 = 0.01, groups = 10, epoch = 10), verbose = TRUE)
+classifier <- CWAR(Class ~ ., Mushroom, support = 0.1, confidence = 0.5, 
+  mining_parameter = list(maxlen = 3), 
+  training_parameter = list(l1 = 0.01, groups = 10, epoch = 10), 
+  verbose = TRUE)
 
 classifier
 inspect(rules(classifier))
