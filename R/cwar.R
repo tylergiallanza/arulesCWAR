@@ -24,9 +24,12 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
     optimizer = "sgd",
     opt_params = 0.1, ### for sgd
     batch_size = 16,
-    epochs = 5,
+    epochs = 100,
     learning_rate = 0.001,
-    groups = 5
+    groups = 5,
+    patience = 3,
+    patience_metric = 'loss',
+    patience_delta = 0
   ))
   if(verbose) cat("CWAR\n")
   if(verbose) cat("Training parameters:\n")
@@ -82,9 +85,14 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
   
   #step 4: run training
   if(verbose) cat("4. Running optimization. ")
-  weights <- train(arch, as.integer(training_params$epochs), as.integer(training_params$batch_size), 
+  train_data <- train(arch, as.integer(training_params$epochs), as.integer(training_params$batch_size), 
     x_data, y_data, 
-    deep = training_params$groups)
+    deep = training_params$groups, 
+    patience = training_params$patience,
+    patience_metric = training_params$patience_metric,
+    delta = training_params$patience_delta, verbose = verbose)
+  weights <- train_data$weights
+  history <- train_data$history
   t5 <- proc.time()
   if(verbose) cat("[", t5[3]-t4[3], "s]", "\n", sep ="")
   if(verbose && training_params$groups > 0) cat("  Used groups: ", sum(colSums(weights$w1)>0),
@@ -105,6 +113,7 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
     method = "logit (CWAR)",
     weights = weights,
     all_rules = rules,
+    history = history,
     parameters = list(
       support = support,
       confidence = confidence,

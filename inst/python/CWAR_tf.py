@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import tensorflow as tf
+import sys
 
 tf.compat.v1.disable_eager_execution()
 
@@ -43,7 +44,7 @@ def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2
     first_out = tf.compat.v1.add(tf.compat.v1.sparse_tensor_dense_matmul(x, w1), b1)
     
     if deep:
-        first_out = tf.compat.v1.nn.relu(first_out) # output needs to be positive???
+        #first_out = tf.compat.v1.nn.relu(first_out) # output needs to be positive???
         output = tf.compat.v1.add(tf.compat.v1.matmul(first_out, w2, a_is_sparse = True, b_is_sparse = True), b2)
     else:
         output = first_out
@@ -84,9 +85,20 @@ def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2
             'loss':loss, 'accuracy':accuracy, 'rules':rules, 
             'w1':w1, 'b1':b1, 'w2':w2, 'b2':b2}
 
-def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False, 
-          x_test = None, y_test = None, x_val = None, y_val = None):
+def get_weights(sess, tensors, deep):
+    weights = {}
+    weights['w1'] = sess.run(tensors['w1'])
+    weights['b1'] = sess.run(tensors['b1'])
+    if deep:
+        weights['w2'] = sess.run(tensors['w2'])
+    weights['b2'] = sess.run(tensors['b2'])
+    return weights
+
+def train(tensors, epochs, batch_size, x_data, y_data, deep, patience = 3, delta = 0, patience_metric = 'loss', prod = False, 
+          x_test = None, y_test = None, x_val = None, y_val = None, verbose = False):
     indices = list(range(len(y_data)))
+    history = {'loss':[]}
+    best, best_weights, best_epoch, wait = 1000000, None, 0, 0
     
     with tf.compat.v1.Session() as sess:
         last_acc, last_num_rules = 0, 0
@@ -96,8 +108,6 @@ def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False,
             epoch_loss, epoch_acc = 0, 0
             num_batches = (len(indices) - len(indices) % batch_size) / batch_size
             for start_index in range(0,len(indices) - len(indices) % batch_size, batch_size):
-                #x_data is not batch subsetting correctly - try using tf slice
-                # MFH: was the problem the () in the range?
                 batch_x, batch_y = get_x_batch(x_data, start_index, batch_size), y_data[start_index:(start_index+batch_size)]
                 feed_dict = {tensors['x']:batch_x, tensors['y']:batch_y}
                 _, loss,acc,num_rules = sess.run([tensors['train_step'], tensors['loss'], 
@@ -107,8 +117,19 @@ def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False,
                 last_acc, last_num_rules = acc, num_rules
             epoch_loss  /= num_batches
             epoch_acc /= num_batches
-            if not prod and False:
-                print(epoch_loss,epoch_acc,num_rules)
+            history['loss'].append(epoch_loss)
+            if patience is not None:
+                if history[patience_metric][-1]+delta <= best:
+                    best = history[patience_metric][-1]
+                    best_weights = get_weights(sess,tensors,deep)
+                    best_epoch = epoch
+                else:
+                  wait += 1
+                  if wait >= patience:
+                      if verbose:
+                          print(f'Early stopping training of the model at epoch {epoch} with {patience_metric} of {best:.2f}.')
+                      return {'weights':best_weights,'history':{x:history[x][:best_epoch] for x in history}}
+                
         if prod:
             test_acc, val_acc = None, None
             if x_test is not None:
@@ -121,14 +142,9 @@ def train(tensors, epochs, batch_size, x_data, y_data, deep, prod=False,
                 val_acc = sess.run(tensors['accuracy'], feed_dict) 
             return last_acc, test_acc, val_acc, last_num_rules
         else:
-            weights = {}
-            weights['w1'] = sess.run(tensors['w1'])
-            weights['b1'] = sess.run(tensors['b1'])
-            if deep:
-                weights['w2'] = sess.run(tensors['w2'])
-                weights['b2'] = sess.run(tensors['b2'])
+            weights = get_weights(sess,tensors,deep)
             
-            return weights
+            return {'weights':weights, 'history':history}
 
 ### The rest of the file is currently UNUSED!
 
