@@ -21,10 +21,14 @@ def get_x_batch(csr_mat, start_index, batch_size):
       dense_shape=coo_mat.shape)
 
 # used for training
-def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2):
+def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2, l1_path = False, l2_path = False):
+    if l1_path and l2_path:
+        print('Error - only one regularization path is supported.')
+        return None
     tf.compat.v1.reset_default_graph()
     y = tf.compat.v1.placeholder(tf.compat.v1.float32, (None, num_classes))
     x = tf.compat.v1.sparse_placeholder(tf.compat.v1.float32, (None, num_rules))
+    reg_in = tf.compat.v1.placeholder(tf.compat.v1.float32,())
     
     # use grouping layer of size deep?
     if deep > 0:
@@ -57,11 +61,11 @@ def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2
         loss = tf.compat.v1.losses.softmax_cross_entropy(y,yhat)
     
     regularization = 0.0
-    if l1:
-        regularization = tf.compat.v1.add(regularization, tf.compat.v1.scalar_mul(l1, tf.compat.v1.reduce_sum(w1)))
-    if l2:
-        regularization = tf.compat.v1.add(regularization, tf.compat.v1.scalar_mul(l2, tf.compat.v1.reduce_sum(tf.compat.v1.square(w1))))
-    
+    if l1 or l1_path:
+        regularization = tf.compat.v1.add(regularization, tf.compat.v1.scalar_mul(reg_in, tf.compat.v1.reduce_sum(w1)))
+    if l2 or l2_path:
+        regularization = tf.compat.v1.add(regularization, tf.compat.v1.scalar_mul(reg_in, tf.compat.v1.reduce_sum(tf.compat.v1.square(w1))))
+
     loss = tf.compat.v1.add(loss, regularization)
     
     if optimizer == 'sgd':
@@ -80,7 +84,13 @@ def build_arch(num_rules, num_classes, deep, loss, optimizer, opt_params, l1, l2
     rules = tf.compat.v1.count_nonzero(tf.compat.v1.reduce_sum(tf.compat.v1.nn.relu(w1),1))
     accuracy = tf.compat.v1.reduce_mean(tf.compat.v1.cast(correct_prediction,tf.compat.v1.float32))
     
-    return {'x':x, 'y':y, 
+    if l1_path or l2_path:
+        return {'x':x, 'y':y, 'reg':reg_in,
+            'train_step':train_step, 'prediction':prediction, 
+            'loss':loss, 'accuracy':accuracy, 'rules':rules, 
+            'w1':w1, 'b1':b1, 'w2':w2, 'b2':b2}
+    else:
+        return {'x':x, 'y':y,'reg':reg_in,'reg_val':l1 if l1 else l2,
             'train_step':train_step, 'prediction':prediction, 
             'loss':loss, 'accuracy':accuracy, 'rules':rules, 
             'w1':w1, 'b1':b1, 'w2':w2, 'b2':b2}
@@ -94,41 +104,74 @@ def get_weights(sess, tensors, deep):
     weights['b2'] = sess.run(tensors['b2'])
     return weights
 
-def train(tensors, epochs, batch_size, x_data, y_data, deep, patience = 3, delta = 0, patience_metric = 'loss', prod = False, 
-          x_test = None, y_test = None, x_val = None, y_val = None, verbose = False):
+def train_model_instance(tensors, reg_val, epochs, batch_size, x_data, y_data, deep, patience, delta, patience_metric,
+                         x_test, y_test, x_val, y_val, init_vars, verbose, sess):
     indices = list(range(len(y_data)))
     history = {'loss':[]}
     best, best_weights, best_epoch, wait = 1000000, None, 0, 0
-    
-    with tf.compat.v1.Session() as sess:
-        last_acc, last_num_rules = 0, 0
-        batch_size = min(batch_size, len(indices))
+    last_acc, last_num_rules = 0, 0
+    batch_size = min(batch_size, len(indices))
+    if init_vars:
         sess.run(tf.compat.v1.global_variables_initializer())
-        for epoch in range(epochs):
-            epoch_loss, epoch_acc = 0, 0
-            num_batches = (len(indices) - len(indices) % batch_size) / batch_size
-            for start_index in range(0,len(indices) - len(indices) % batch_size, batch_size):
-                batch_x, batch_y = get_x_batch(x_data, start_index, batch_size), y_data[start_index:(start_index+batch_size)]
-                feed_dict = {tensors['x']:batch_x, tensors['y']:batch_y}
-                _, loss,acc,num_rules = sess.run([tensors['train_step'], tensors['loss'], 
-                                                  tensors['accuracy'], tensors['rules']], feed_dict)
-                epoch_loss += loss
-                epoch_acc += acc
-                last_acc, last_num_rules = acc, num_rules
-            epoch_loss  /= num_batches
-            epoch_acc /= num_batches
-            history['loss'].append(epoch_loss)
-            if patience is not None:
-                if history[patience_metric][-1]+delta <= best:
-                    best = history[patience_metric][-1]
-                    best_weights = get_weights(sess,tensors,deep)
-                    best_epoch = epoch
-                else:
-                  wait += 1
-                  if wait >= patience:
-                      if verbose:
-                          print(f'Early stopping training of the model at epoch {epoch} with {patience_metric} of {best:.2f}.')
-                      return {'weights':best_weights,'history':{x:history[x][:best_epoch] for x in history}}
+    for epoch in range(epochs):
+        epoch_loss, epoch_acc = 0, 0
+        num_batches = (len(indices) - len(indices) % batch_size) / batch_size
+        for start_index in range(0,len(indices) - len(indices) % batch_size, batch_size):
+            batch_x, batch_y = get_x_batch(x_data, start_index, batch_size), y_data[start_index:(start_index+batch_size)]
+            feed_dict = {tensors['x']:batch_x, tensors['y']:batch_y,tensors['reg']:reg_val}
+            _, loss,acc,num_rules = sess.run([tensors['train_step'], tensors['loss'], 
+                                              tensors['accuracy'], tensors['rules']], feed_dict)
+            epoch_loss += loss
+            epoch_acc += acc
+            last_acc, last_num_rules = acc, num_rules
+        epoch_loss  /= num_batches
+        epoch_acc /= num_batches
+        history['loss'].append(epoch_loss)
+        if patience is not None:
+            if history[patience_metric][-1]+delta <= best:
+                best = history[patience_metric][-1]
+                best_weights = get_weights(sess,tensors,deep)
+                best_epoch = epoch
+            else:
+              wait += 1
+              if wait >= patience:
+                  if verbose:
+                      print(f'Early stopping training of the model at epoch {epoch} with {patience_metric} of {best:.2f}.')
+                      print(history,best_weights['w1'].mean())
+                  return {'weights':best_weights,'history':{x:history[x] for x in history}}
+    if verbose:
+        print('Warning - early stopping not triggered. Model may not have converged.')
+    return {'weights':best_weights,'history':{x:history[x][:best_epoch] for x in history}}
+
+def train(tensors, epochs, batch_size, x_data, y_data, deep, patience = 3, delta = 0, patience_metric = 'loss', prod = False, 
+          x_test = None, y_test = None, x_val = None, y_val = None, l1_path = False, l2_path = False, warm_restart = True,
+          verbose = False):
+    reg_path = l1_path or l2_path
+    with tf.compat.v1.Session() as sess:
+        if reg_path:
+            reg_vals = [1e-7,1e-6,1e-5,1e-4,1e-3]
+            weights =  [None,None,None,None,None]
+            history =  [None,None,None,None,None]
+            for i in range(len(reg_vals)):
+                if verbose:
+                    print(f'Running the model with regularization {reg_vals[i]}.')
+                init_vars = i==0 or not warm_restart
+                results = train_model_instance(tensors, reg_vals[i], epochs//len(reg_vals), batch_size, x_data, y_data,
+                                               deep, patience, delta, patience_metric, x_test, y_test, x_val, y_val,
+                                               init_vars, verbose, sess)
+                weights[i] = results['weights']
+                history[i] = results['history']
+            best_idx = np.argmin([h[patience_metric][-1] for h in history])
+            best_weights = weights[best_idx]
+            if verbose:
+                print(f'Best performance for model with regularization of {reg_vals[best_idx]}.')
+            return {'weights':best_weights,'history':history}
+        else:
+            reg_val = tensors['reg_val']
+            return train_model_instance(tensors, reg_val, epochs, batch_size, x_data, y_data, deep, patience, delta,
+                                        patience_metric, x_test, y_test, x_val, y_val, True, verbose, sess)
+        
+
                 
         if prod:
             test_acc, val_acc = None, None

@@ -29,7 +29,9 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
     groups = 5,
     patience = 3,
     patience_metric = 'loss',
-    patience_delta = 0
+    patience_delta = 0,
+    l1_path = TRUE,
+    l2_path = FALSE
   ))
   if(verbose) cat("CWAR\n")
   if(verbose) cat("Training parameters:\n")
@@ -79,7 +81,9 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
   arch <- build_arch(length(rules), y_data$shape[1], 
     as.integer(training_params$groups), training_params$loss, training_params$optimizer, 
     training_params$opt_params, 
-    training_params$l1, training_params$l2)
+    training_params$l1, training_params$l2,
+    l1_path = training_params$l1_path,
+    l2_path = training_params$l2_path)
   t4 <- proc.time()
   if(verbose) cat("[", t4[3]-t3[3], "s]", "\n", sep ="")
   
@@ -90,7 +94,10 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
     deep = training_params$groups, 
     patience = training_params$patience,
     patience_metric = training_params$patience_metric,
-    delta = training_params$patience_delta, verbose = verbose)
+    delta = training_params$patience_delta, 
+    l1_path = training_params$l1_path,
+    l2_path = training_params$l2_path,
+    verbose = verbose)
   weights <- train_data$weights
   history <- train_data$history
   t5 <- proc.time()
