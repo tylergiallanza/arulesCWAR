@@ -114,7 +114,7 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
    
   structure(list(
     rules = rules_used,
-    class = class,
+    default = NA,
     discretization = disc_info,
     formula = formula,
     method = "logit (CWAR)",

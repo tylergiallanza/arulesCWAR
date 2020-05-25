@@ -101,7 +101,7 @@ def get_weights(sess, tensors, deep):
     weights['b1'] = sess.run(tensors['b1'])
     if deep:
         weights['w2'] = sess.run(tensors['w2'])
-    weights['b2'] = sess.run(tensors['b2'])
+        weights['b2'] = sess.run(tensors['b2'])
     return weights
 
 def train_model_instance(tensors, reg_val, epochs, batch_size, x_data, y_data, deep, patience, delta, patience_metric,
