@@ -70,8 +70,8 @@ table(pr, iris$Species)
 data(Mushroom, package = "arules")
 Mushroom
   
-classifier <- CWAR(Class ~ ., Mushroom, support = 0.1, confidence = 0.5, 
-  mining_parameter = list(maxlen = 3), 
+classifier <- CWAR(Class ~ ., Mushroom, support = 0.1, confidence = 0.5, maxlen = 3, 
+  balanceSupport = TRUE,
   training_parameter = list(l1 = 0.01, groups = 10, epoch = 10), 
   verbose = TRUE)
 

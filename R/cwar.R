@@ -9,11 +9,10 @@ get_y_data <- function(formula, transactions) {
   class_columns
 }
 
-# TODO: make interface look like CBA
-CWAR <- function(formula, data, support = 0.1, confidence = 0.5, 
-  disc.method = "mdlp", balanceSupport = TRUE, 
+CWAR <- function(formula, data, 
   training_parameter = NULL, mining_parameter = NULL, mining_control = NULL, 
-  verbose = FALSE) {
+  balanceSupport = TRUE, disc.method = "mdlp", 
+  verbose = FALSE, ...) {
   
   source_python(system.file("python", "CWAR_tf.py", package = "arulesCWAR"))
   
@@ -33,35 +32,26 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
     l1_path = TRUE,
     l2_path = FALSE
   ))
+  
   if(verbose) cat("CWAR\n")
   if(verbose) cat("Training parameters:\n")
   print(sapply(training_params, as.character))
   
   formula <- as.formula(formula)
-  
-  # prepare data
-  disc_info <- NULL
-  if(is(data, "data.frame")){
-    data <- discretizeDF.supervised(formula, data, method = disc.method)
-    disc_info <- lapply(data, attr, "discretized:breaks")
-  }
-  
-  # convert to transactions for rule mining
-  trans <- as(data, "transactions")
+  trans <- prepareTransactions(formula, data, disc.method)
   
   parsed_formula <- .parseformula(formula, trans)
   class <- sapply(strsplit(parsed_formula$class_name, '='), '[', 2)
   
   
   #step 1: mine rules
-  if(verbose) cat("1. Mining CARs")
+  if(verbose) cat("1. Mining CARs...\n")
   t1 <- proc.time()
-  if(is.null(mining_control)) mining_control <- list(verbose = FALSE)
+  if(is.null(mining_control)) mining_control <- list(verbose = verbose)
   
-  rules <- mineCARs(formula, trans, balanceSupport = balanceSupport, 
-    support = support, confidence = confidence,
-    parameter = mining_parameter,
-    control = mining_control)
+  rules <- mineCARs(formula, trans, 
+    parameter = mining_parameter, control = mining_control, 
+    balanceSupport = balanceSupport, verbose = verbose, ...)
   t2 <- proc.time()
  
   if(verbose) cat(": ", length(rules), " [", t2[3]-t1[3],"s]","\n", sep ="")
@@ -112,44 +102,39 @@ CWAR <- function(formula, data, support = 0.1, confidence = 0.5,
   rules_used = sort(rules[rowSums(weights$w1) != 0], by = "weight")
   if(verbose) cat("  Used CARs: ", length(rules_used), "\n", sep = "")
    
+  ### MFH: We should use the CBA_ruleset constructor here and put most info into a list in model
+  
   structure(list(
     rules = rules_used,
     default = NA,
-    discretization = disc_info,
+    discretization = attr(trans, "disc_info"),
     formula = formula,
     method = "logit (CWAR)",
-    weights = weights,
-    all_rules = rules,
-    history = history,
-    parameters = list(
-      support = support,
-      confidence = confidence,
-      training_params = training_params
+    weights = weights, ### MFH: reduce weights to non-zero weights (for rules_used)
+    all_rules = rules, ### MFH: this should go into model
+    model = list( 
+      parameter = c(list(...), 
+        mining_parameter, 
+        list(training_params = training_params)
+      ),
+      history = history
     ),
-    description = paste0("CWAR algorithm with support=", support,
-      " and confidence=", confidence)
+    description = paste0("CWAR algorithm (unpublished)")
   ), class = c("CWAR", "CBA"))
   
 }
 
 # we do the prediction in R
-# TODO: we can save time by matching agains rules instead of all_rules
 predict.CWAR <- function(object, newdata, type = "class", ...) {
   
-  if(!is.null(object$discretization)) {
-    newdata <- discretizeDF(newdata, lapply(object$discretization,
-      FUN = function(x) list(method="fixed", breaks=x)))
-    newdata <- as(newdata, "transactions")
-  } else {
-    if(!is(newdata, "transactions"))
-      stop("Classifier does not contain discretization information. New data needs to be in the form of transactions. Check ? discretizeDF.")
-  }
+  newdata <- prepareTransactions(object$formula, newdata, 
+    disc.method = object$discretization,
+    match = object$rules)
   
-  # If new data is not already transactions:
-  # Convert new data into transactions and use recode to make sure
-  # the new data corresponds to the model data
-  newdata <- recode(newdata, match = lhs(object$rules))
+  # find class label for each rule
+  RHSclass <- response(object$formula, object$rules)
   
+  # MFH: use rules instead of all_rules, but the weights have to be reduced first.
   x_data <- get_x_data(object$all_rules, newdata)
   dimnames(x_data) <- list(NULL, NULL)
   
@@ -167,12 +152,16 @@ predict.CWAR <- function(object, newdata, type = "class", ...) {
   # softmax
   z <- exp(z)
   z <- z / rowSums(z)
+  z <- zapsmall(z)
   
-  colnames(z) <- object$class
-  
+  colnames(z) <- levels(RHSclass)
+   
   if(type == "class") {
     z <- apply(z, MARGIN = 1, which.max)
-    z <- factor(z, levels = 1:length(object$class), labels = object$class)
+    z <- factor(z, 
+      levels = 1:length(levels(RHSclass)),
+      labels = levels(RHSclass)
+    )
   }
   
   z
